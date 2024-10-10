@@ -2,7 +2,7 @@ name: test-suite
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
   release:
     types:
@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [linux, macos]
+        os: [macos-arm, macos-intel, linux]
         compiler: [gfortran, ifort]
         openmp: [yes, no]
         release: [yes, no]
@@ -30,14 +30,20 @@ jobs:
           # Associate specific os versions with our os tags
           - os: linux
             os-version: ubuntu-22.04
-          - os: macos
+          - os: macos-intel
             os-version: macos-12
+          - os: macos-arm
+            os-version: macos-14
 
           # macos needs null container to avoid loading docker; set linux containers as desired
           - container: null
           - os: linux
             compiler: gfortran
             container: "quay.io/pypa/manylinux_2_28_x86_64"
+
+        exclude:
+          - os: macos-arm
+            compiler: ifort
 
     name: build+test (${{ matrix.os }}, ${{ matrix.compiler }}, openmp=${{ matrix.openmp }}, release=${{ matrix.release }})
     runs-on: ${{ matrix.os-version }}
@@ -49,7 +55,7 @@ jobs:
       OPENMP: ${{ matrix.openmp }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - run: git config --global --add safe.directory $PWD
 
@@ -70,7 +76,7 @@ jobs:
       # Only benchmark+release the 'release' builds, never the 'march=native' builds
       - name: save binary for benchmarking and release
         if: matrix.openmp == 'yes' && matrix.release == 'yes'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: mcfost-binary-${{ matrix.os }}-${{ matrix.compiler }}
           path: src/mcfost
@@ -87,12 +93,12 @@ jobs:
       MCFOST_INSTALL: /usr/local
       OPENMP: yes
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: restore binary artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: mcfost-binary-macos-${{ matrix.compiler }}
+          name: mcfost-binary-macos-intel-${{ matrix.compiler }}
           path: src/
 
       - name: benchmark
@@ -107,25 +113,27 @@ jobs:
     needs: build-and-test
     strategy:
       matrix:
-        os: [linux, macos]
+        os: [linux, macos-intel, macos-arm]
 
         include:
           # Associate specific os versions with our os tags
           - os: linux
             os-version: ubuntu-22.04
-          - os: macos
+          - os: macos-intel
             os-version: macos-12
+          - os: macos-arm
+            os-version: macos-14
 
     runs-on: ${{ matrix.os-version }}
     if: ${{ github.event_name == 'release' }}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: restore binary artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: mcfost-binary-${{ matrix.os }}-ifort # use ifort for binary release
+          name: mcfost-binary-${{ matrix.os }}-${{ matrix.os == 'macos-arm'  && 'gfortran' || 'ifort' }} # use ifort for binary release
           path: src/
 
       - name: simple check to make sure the binary runs in a clean environment

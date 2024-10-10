@@ -46,7 +46,7 @@ subroutine save_radiation_field(id,lambda,p_lambda,icell, Stokes, l,  x0,y0,z0, 
   if (lvariable_dust) then
      p_icell => icell
   else
-     p_icell => icell_ref
+     p_icell => icell1
   endif
 
   if (letape_th) then
@@ -149,7 +149,8 @@ subroutine allocate_radiation_field_step1(Nc)
 
   lxJ_abs = lProDiMo.or.lML.or.loutput_UV_field.or.loutput_J
   lxJ_abs_step1 = lRE_nLTE .or. lnRE .or. loutput_J_step1
-  if (lxJ_abs_step1 .or. (lxJ_abs.and.lsed.and.lsed_complete)) then
+
+  if (lxJ_abs_step1 .or. (lxJ_abs.and.lsed)) then
      allocate(xJ_abs(Nc,n_lambda,nb_proc), J0(Nc,n_lambda), stat=alloc_status) ! BIG array
      if (alloc_status > 0) call error('Allocation error xJ_abs')
      xJ_abs=0.0 ; J0 = 0.0

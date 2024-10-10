@@ -11,7 +11,7 @@ module read_phantom
 contains
 
   subroutine read_phantom_bin_files(iunit,n_files, filenames, x,y,z,h,vx,vy,vz,T_gas,particle_id,massgas,massdust,&
-       rhogas,rhodust,extra_heating,ndusttypes,SPH_grainsizes,mask,n_SPH,ldust_moments,dust_moments,ierr)
+       rhogas,rhodust,extra_heating,ndusttypes,SPH_grainsizes,mask,n_SPH,ldust_moments,dust_moments,mass_per_h,ierr)
 
     integer,               intent(in) :: iunit, n_files
     character(len=*),dimension(n_files), intent(in) :: filenames
@@ -19,11 +19,11 @@ contains
     real(dp), intent(out), dimension(:),   allocatable :: rhogas,massgas,SPH_grainsizes,T_gas
     integer,  intent(out), dimension(:),   allocatable :: particle_id
     real(dp), intent(out), dimension(:,:), allocatable :: rhodust,massdust, dust_moments
-    logical, dimension(:), allocatable, intent(out) :: mask
+    integer, dimension(:), allocatable, intent(out) :: mask
     real, intent(out), dimension(:), allocatable :: extra_heating
     integer, intent(out) :: ndusttypes,n_SPH,ierr
     logical, intent(out) :: ldust_moments
-
+    real(dp), intent(out) :: mass_per_H
     integer, parameter :: maxarraylengths = 12
     integer, parameter :: nsinkproperties = 17
     integer(kind=8) :: number8(maxarraylengths)
@@ -38,7 +38,7 @@ contains
     integer, parameter :: n_nucleation = 6
     integer, allocatable, dimension(:) :: npartoftype
     real(dp), allocatable, dimension(:,:) :: massoftype !(maxfiles,maxtypes)
-    real(dp) :: hfact,umass,utime,ulength,gmw,x2,mass_per_H
+    real(dp) :: hfact,umass,utime,ulength,gmw,x2
     integer(kind=1), allocatable, dimension(:) :: itype,ifiles
     real(4),  allocatable, dimension(:) :: tmp
     real(dp), allocatable, dimension(:) :: grainsize,graindens
@@ -451,7 +451,7 @@ contains
   subroutine read_phantom_hdf_files(iunit,n_files, filenames, x,y,z,h,vx,vy,vz,T_gas,&
        particle_id,massgas,massdust,rhogas,rhodust, &
        extra_heating,ndusttypes,SPH_grainsizes,     &
-       mask,n_SPH,ldust_moments,dust_moments,ierr)
+       mask,n_SPH,ldust_moments,dust_moments,mass_per_H,ierr)
 
     use utils_hdf5, only:open_hdf5file,    &
          close_hdf5file,   &
@@ -468,10 +468,11 @@ contains
          SPH_grainsizes
     integer,  intent(out), dimension(:),   allocatable :: particle_id
     real(dp), intent(out), dimension(:,:), allocatable :: rhodust,massdust,dust_moments
-    logical, dimension(:), allocatable, intent(out) :: mask
+    integer, dimension(:), allocatable, intent(out) :: mask
     real, intent(out), dimension(:), allocatable :: extra_heating
     integer, intent(out) :: ndusttypes,n_SPH,ierr
     logical, intent(out) :: ldust_moments
+    real(dp), intent(out) :: mass_per_H
 
     character(len=200) :: filename
 
@@ -722,20 +723,23 @@ contains
     real(kind=dp), allocatable, dimension(:,:), intent(inout) :: xyzmh_ptmass
     real(kind=dp), intent(in) :: ulength
     real(kind=dp), dimension(3) :: centre
-    logical, dimension(:), allocatable, intent(out) :: mask
+    integer, dimension(:), allocatable, intent(out) :: mask
 
     integer :: i
 
     ! Modifying SPH dump
-    if (ldelete_Hill_sphere .or. ldelete_inside_rsph .or. ldelete_outside_rsph .or. ldelete_above_theta) then
+    if (ldelete_Hill_sphere .or. lmask_inside_rsph .or. lmask_outside_rsph .or. lmask_above_theta .or. &
+         ldelete_outside_rsph .or. ldelete_above_theta) then
        allocate(mask(np))
-       mask(:) = .false.
+       mask(:) = 0
     endif
 
     if (ldelete_Hill_sphere)  call mask_Hill_sphere(np, nptmass, xyzh, xyzmh_ptmass,ulength, mask)
-    if (ldelete_inside_rsph)  call mask_inside_rsph(np, xyzh, ulength, rsph_min, mask)
-    if (ldelete_outside_rsph) call mask_outside_rsph(np, xyzh, ulength, rsph_max, mask)
-    if (ldelete_above_theta)  call mask_above_theta(np, xyzh, ulength, theta_max, mask)
+    if (lmask_inside_rsph)  call mask_inside_rsph(np, xyzh, ulength, rsph_min, mask)
+    if (lmask_outside_rsph) call mask_outside_rsph(np, xyzh, ulength, rsph_mask_max, mask)
+    if (ldelete_outside_rsph) call delete_outside_rsph(np, xyzh, ulength, rsph_max, mask)
+    if (ldelete_above_theta)  call delete_above_theta(np, xyzh, ulength, theta_max, mask)
+    if (lmask_above_theta)  call mask_above_theta(np, xyzh, ulength, theta_mask_max, mask)
 
     if (lrandomize_azimuth)     call randomize_azimuth(np, xyzh, vxyzu, mask)
     if (lrandomize_gap)         call randomize_gap(np, nptmass, xyzh, vxyzu, xyzmh_ptmass,ulength, gap_factor, .true.)
@@ -751,6 +755,8 @@ contains
           xyzh(1:3,i) = xyzh(1:3,i) - centre(:)
        enddo
     endif
+
+    if (lexpand_z) call expand_z(np, xyzh, vxyzu, expand_z_factor)
 
     return
 
@@ -772,7 +778,8 @@ contains
     ! extra_heating is in W
 
     use constantes, only : au_to_cm,Msun_to_g,erg_to_J,m_to_cm, Lsun, cm_to_mum, deg_to_rad, Ggrav
-    use parametres, only : ldudt_implicit,ufac_implicit, lplanet_az, planet_az, lfix_star, RT_az_min, RT_az_max, RT_n_az
+    use parametres, only : ldudt_implicit,ufac_implicit, lplanet_az, planet_az, lfix_star, RT_az_min, RT_az_max, RT_n_az, &
+         idelta_planet_az, delta_planet_az
     use parametres, only : lscale_length_units,scale_length_units_factor,lscale_mass_units,scale_mass_units_factor
 
     ! Input arguments
@@ -818,14 +825,10 @@ contains
     if (lscale_length_units) then
        write(*,*) 'Lengths are rescaled by ', real(scale_length_units_factor)
        ulength_scaled = ulength * scale_length_units_factor
-    else
-       scale_length_units_factor = 1.0
     endif
     if (lscale_mass_units) then
        write(*,*) 'Mass are rescaled by ', real(scale_mass_units_factor)
        umass_scaled = umass * scale_mass_units_factor
-    else
-       scale_mass_units_factor = 1.0
     endif
     utime_scaled = sqrt(ulength_scaled**3/(G_phantom*umass_scaled))
 
@@ -939,7 +942,7 @@ contains
                 vz(j) = vzi * uvelocity
              endif
 
-             if (ldust_moments) dust_moments(:,j) = nucleation(2:5,i)
+             if (ldust_moments) dust_moments(:,j) = nucleation(1:4,i) ! indexing is different from phantom as I read starting at k0
 
              T_gas(j) = T_gasi
              rhogasi = massoftype(ifile,itypei) *(hfact/hi)**3  * udens ! g/cm**3
@@ -1069,13 +1072,21 @@ contains
        if (nptmass == 2) which_planet=2
        if (which_planet > nptmass) call error("specified sink particle does not exist")
 
-       RT_n_az = 1
+
        RT_az_min = planet_az + atan2(xyzmh_ptmass(2,which_planet) - xyzmh_ptmass(2,1), &
             xyzmh_ptmass(1,which_planet) - xyzmh_ptmass(1,1)) &
             / deg_to_rad
-       RT_az_max = RT_az_min
        write(*,*) "Moving sink particle #", which_planet, "to azimuth =", planet_az
        write(*,*) "WARNING: updating the azimuth to:", RT_az_min
+
+       if (idelta_planet_az == 0) then
+          RT_n_az = 1
+          RT_az_max = RT_az_min
+       else
+          RT_n_az = 2 * idelta_planet_az+1
+          RT_az_min = RT_az_min - delta_planet_az
+          RT_az_max = RT_az_min + 2*delta_planet_az
+       endif
     endif
 
     if (lfix_star) then

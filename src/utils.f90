@@ -879,9 +879,16 @@ function mcfost_update(lforce_update, lmanual, n_days)
      if (operating_system=="Linux ") then
         url = trim(webpage)//"mcfost_Linux-X64.tar.gz"
         url_sha1 = trim(webpage)//"mcfost_Linux-X64.sha1"
+        write(*,*) "Your system is ", operating_system
      else if (operating_system=="Darwin") then
-        url = trim(webpage)//"mcfost_macOS-X64.tar.gz"
-        url_sha1 = trim(webpage)//"mcfost_macOS-X64.sha1"
+        if (architecture == "arm64") then
+           url = trim(webpage)//"mcfost_macOS-ARM64.tar.gz"
+           url_sha1 = trim(webpage)//"mcfost_macOS-ARM64.sha1"
+        else
+           url = trim(webpage)//"mcfost_macOS-X64.tar.gz"
+           url_sha1 = trim(webpage)//"mcfost_macOS-X64.sha1"
+        endif
+             write(*,*) "Your system is ", operating_system, "on ", architecture
      else
         write(*,*) "Unknown operating system : error 2"
         write(*,*) "Cannot download new binary"
@@ -889,7 +896,6 @@ function mcfost_update(lforce_update, lmanual, n_days)
         return
      endif
 
-     write(*,*) "Your system is ", operating_system
 
      ! Download
      write(*,'(a32, $)') "Downloading the new version ..."
@@ -943,7 +949,6 @@ function mcfost_update(lforce_update, lmanual, n_days)
      ! check where is the current binary
      call get_command_argument(0,current_binary)
      if (current_binary(1:1)/=".") then
-
         write(*,'(a28, $)') "Locating current binary ..."
         cmd = "rm -rf which_mcfost_binary.txt && which "//trim(current_binary)// &
              " | awk '{print "//' "\"" $NF "\""'//"}' > which_mcfost_binary.txt"

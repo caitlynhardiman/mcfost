@@ -227,7 +227,7 @@ contains
 
     real(kind=dp), dimension(4) :: Stokes
     real(kind=dp) :: nnfot2
-    real(kind=dp) :: x,y,z, u,v,w
+    real(kind=dp) :: x,y,z, u,v,w, mass_per_H
     real :: rand, time, cpu_time_begin, cpu_time_end
     integer :: n_SPH, icell, nbre_phot2, ibar, id, nnfot1_cumul, i_SPH, i, lambda_seuil
     integer :: itime, ieos, alloc_status
@@ -236,6 +236,8 @@ contains
     integer, pointer, save :: p_lambda
 
     logical, save :: lfirst_time = .true.
+
+    integer, dimension(:), allocatable :: mask ! not allocated as we do not mask particle in live RT hydro
 
     ldust_moments = .false. ! for now
 
@@ -265,7 +267,8 @@ contains
 
     ! Performing the Voronoi tesselation & defining density arrays
     call SPH_to_Voronoi(n_SPH, ndusttypes, particle_id, x_SPH,y_SPH,z_SPH,h_SPH,vx_SPH,vy_SPH,vz_SPH,Tgas_SPH, &
-         massgas,massdust,rhogas,rhodust,SPH_grainsizes, SPH_limits, .false., is_ghost, ldust_moments, dust_moments)
+         massgas,massdust,rhogas,rhodust,SPH_grainsizes, SPH_limits, .false., is_ghost, &
+         ldust_moments, dust_moments, mass_per_H, mask=mask)
 
     call setup_grid()
     call setup_scattering()

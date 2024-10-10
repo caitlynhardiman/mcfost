@@ -896,10 +896,12 @@ subroutine init_dust_mol(imol)
   if (lvariable_dust) then
      p_icell => icell
   else
-     p_icell => icell_ref
+     p_icell => icell1
   endif
 
   call realloc_dust_mol(imol)
+
+  tab_lambda = 1e-30 ! to avoid error in stars.f90
 
   if (ldust_mol) then
      ! Tableau de longeur d'onde

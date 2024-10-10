@@ -16,18 +16,16 @@ module density
   integer, public :: species_removed
   real, public :: T_rm
 
-  public :: densite_gaz, masse_gaz, surface_density, densite_gaz_midplane, densite_pouss, masse, icell_not_empty
-
-  public :: define_density, define_density_wall3d, define_dust_density, read_density_file, &
+  public :: densite_gaz, masse_gaz, surface_density, densite_gaz_midplane, densite_pouss, masse, icell_not_empty, &
+       define_density, define_density_wall3d, define_dust_density, read_density_file, is_density_file_Voronoi, &
        densite_seb_charnoz2, densite_seb_charnoz, remove_species, read_sigma_file, normalize_dust_density, &
-       reduce_density
-
+       reduce_density, read_Voronoi_fits_file, find_non_empty_cell
 
   private
 
   real(kind=dp), dimension(:), allocatable :: densite_gaz, masse_gaz ! n_rad, nz, n_az, Unites: part.m-3 et g : H2
-  real(kind=dp), dimension(:), allocatable :: densite_gaz_midplane   ! densite_gaz gives the midplane density for j=0
-  real(kind=dp), dimension(:), allocatable :: Surface_density
+  real(kind=dp), dimension(:,:), allocatable :: densite_gaz_midplane   ! densite_gaz gives the midplane density for j=0
+  real(kind=dp), dimension(:,:), allocatable :: Surface_density
 
   real(kind=dp), dimension(:,:), allocatable :: densite_pouss ! n_grains, n_cells en part.cm-3
   real(kind=dp), dimension(:), allocatable :: masse  !en g ! n_cells
@@ -61,9 +59,10 @@ subroutine define_gas_density()
 
   ! Tableau temporaire pour densite gaz dans 1 zone (pour renormaliser zone par zone)
   ! Pas besoin dans la poussiere car a chaque pop, il y a des tailles de grains independantes
-  real(kind=dp), dimension(:), allocatable :: densite_gaz_tmp, densite_gaz_midplane_tmp
+  real(kind=dp), dimension(:), allocatable :: densite_gaz_tmp
+  real(kind=dp), dimension(:,:), allocatable :: densite_gaz_midplane_tmp
 
-  allocate(densite_gaz_tmp(n_cells), densite_gaz_midplane_tmp(n_rad), stat=alloc_status)
+  allocate(densite_gaz_tmp(n_cells), densite_gaz_midplane_tmp(n_rad,n_az), stat=alloc_status)
   densite_gaz_tmp = 0.0 ; densite_gaz_midplane_tmp = 0.0
   densite_gaz = 0.0 ;
 
@@ -159,25 +158,29 @@ subroutine define_gas_density()
                  if (j/=0) then
                     densite_gaz_tmp(icell) = density
                  else
-                    densite_gaz_midplane_tmp(i) = density
+                    densite_gaz_midplane_tmp(i,k) = density
                  endif
 
               enddo !k
            enddo bz !j
 
            if ((lSigma_file).and.(izone==1)) then
-              ! Normalisation pour densite de surface dans fichier
-              ! todo : only works for k = 1
-              somme = 0.0
-              bz2 : do j=min(1,j_start),nz
-                 somme = somme + densite_gaz_tmp(cell_map(i,j,1)) *  (z_lim(i,j+1) - z_lim(i,j))
-              enddo bz2
-              if (somme > tiny_dp) then
-                 do j=min(1,j_start),nz
-                    densite_gaz_tmp(cell_map(i,j,1)) = densite_gaz_tmp(cell_map(i,j,1)) * Surface_density(i)/somme
-                 enddo ! j
-                 densite_gaz_midplane_tmp(i) = densite_gaz_midplane_tmp(i) * Surface_density(i)/somme
-              endif
+              do k=1, n_az
+                 ! Normalisation pour densite de surface dans fichier
+                 somme = 0.0
+                 bz2 : do j=min(1,j_start),nz
+                    if (j==0) cycle bz2
+                    somme = somme + densite_gaz_tmp(cell_map(i,j,k)) *  (z_lim(i,abs(j)+1) - z_lim(i,abs(j)))
+                 enddo bz2
+
+                 if (somme > tiny_dp) then
+                    bz3 : do j=min(1,j_start),nz
+                       if (j==0) cycle bz3
+                       densite_gaz_tmp(cell_map(i,j,k)) = densite_gaz_tmp(cell_map(i,j,k)) * Surface_density(i,k)/somme
+                    enddo bz3
+                    densite_gaz_midplane_tmp(i,k) = densite_gaz_midplane_tmp(i,k) * Surface_density(i,k)/somme
+                 endif
+              enddo !k
            endif
         enddo ! i
 
@@ -217,7 +220,7 @@ subroutine define_gas_density()
                  if (j/=0) then
                     densite_gaz_tmp(icell) = density
                  else
-                    densite_gaz_midplane_tmp(i) = density
+                    densite_gaz_midplane_tmp(i,k) = density
                  endif
               enddo !k
            enddo !j
@@ -286,19 +289,21 @@ subroutine define_gas_density()
      ! Normalisation
      if (mass > 0.0) then ! pour le cas ou gas_to_dust = 0.
         facteur = dz%diskmass * dz%gas_to_dust / mass
-        !     write(*,*) "VERIF gas mass: zone ",  izone, dz%diskmass * dz%gas_to_dust, mass, facteur
+             write(*,*) "VERIF gas mass: zone ",  izone, dz%diskmass * dz%gas_to_dust, mass, facteur
 
         ! Somme sur les zones pour densite finale
         do i=1,n_rad
-           bz_gas_mass2 : do j=min(1,j_start),nz
-              if (j==0) cycle
-              do k=1, n_az
+           do k=1, n_az
+              bz_gas_mass2 : do j=min(1,j_start),nz
+                 if (j==0) cycle bz_gas_mass2
                  icell = cell_map(i,j,k)
                  densite_gaz(icell) = densite_gaz(icell) + densite_gaz_tmp(icell) * facteur
-              enddo !k
-              densite_gaz_midplane(i) = densite_gaz_midplane(i) + densite_gaz_midplane_tmp(i) * facteur
-           enddo bz_gas_mass2
+              enddo bz_gas_mass2
+
+              densite_gaz_midplane(i,k) = densite_gaz_midplane(i,k) + densite_gaz_midplane_tmp(i,k) * facteur
+           enddo !k
         enddo ! i
+
      endif
   enddo ! n_zones
 
@@ -438,7 +443,6 @@ subroutine define_dust_density()
      if (dz%geometry <= 2) then ! Disque
 
         do i=1, n_rad
-           rho0 = densite_gaz_midplane(i) ! midplane density (j=0)
 
            !write(*,*) "     ", rcyl, rho0*masse_mol_gaz*cm_to_m**2, dust_pop(pop)%rho1g_avg
            !write(*,*) "s_opt", rcyl, s_opt/1000.
@@ -470,6 +474,9 @@ subroutine define_dust_density()
               do k=1, n_az
                  icell = cell_map(i,j,k)
                  phi = phi_grid(icell)
+
+                 rho0 = densite_gaz_midplane(i,k) ! midplane density (j=0)
+
 
                  ! Warp analytique
                  if (lwarp) then
@@ -532,13 +539,13 @@ subroutine define_dust_density()
                     do j=j_start,nz
                        if (j==0) cycle
                        icell = cell_map(i,j,k)
-                       somme = somme + densite_pouss(l,icell)  *  (z_lim(i,j+1) - z_lim(i,j))
+                       somme = somme + densite_pouss(l,icell)  *  (z_lim(i,abs(j)+1) - z_lim(i,abs(j)))
                     enddo ! j
                     if (somme > tiny_dp) then
                        do j=j_start,nz
                           if (j==0) cycle
                           icell = cell_map(i,j,k)
-                          densite_pouss(l,icell) = densite_pouss(l,icell)  * Surface_density(i)/somme * nbre_grains(l)
+                          densite_pouss(l,icell) = densite_pouss(l,icell)  * Surface_density(i,k)/somme * nbre_grains(l)
                        enddo ! j
                     endif
                  enddo ! l
@@ -599,13 +606,13 @@ subroutine define_dust_density()
            endif
 
            do i=1, n_rad
-              rho0 = densite_gaz_midplane(i) ! pour dependance en R : pb en coord sperique
               icell = cell_map(i,1,1)
               rcyl = r_grid(icell)
               H = dz%sclht * (rcyl/dz%rref)**dz%exp_beta
 
               if ((rcyl > dz%rmin).and.(rcyl < dz%rmax)) then
                  do k=1, n_az
+                    rho0 = densite_gaz_midplane(i,k) ! pour dependance en R : pb en coord sperique
 
                     ! Renormalisation pour  les cas ou il y a peu de resolution en z
                     do l=dust_pop(pop)%ind_debut,dust_pop(pop)%ind_fin
@@ -940,6 +947,49 @@ end subroutine define_density_wall3D
 
 !********************************************************************
 
+subroutine is_density_file_Voronoi()
+
+  integer :: unit, status, naxis, readwrite, blocksize, nfound
+  character(len=8) :: comment
+  integer, dimension(4) :: naxes
+
+  status=0
+  !  Get an unused Logical Unit Number to use to open the FITS file.
+  call ftgiou(unit,status)
+
+  ! Opening file
+  readwrite=0
+  write(*,*) "Checking "//trim(density_files(1))
+  call ftopen(unit,density_files(1),readwrite,blocksize,status)
+  if (status /= 0) call error("density file needed")
+
+  !nfound=0
+  call ftgkyj(unit,'NAXIS',naxis,comment,status)
+  if (status /= 0) call error("error reading density file")
+
+  nfound=0
+  call ftgknj(unit,'NAXIS',1,4,naxes,nfound,status)
+
+  if (naxis == 1) then
+     write(*,*) "Found 1D density structure, using a Voronoi mesh"
+     lVoronoi = .true.
+     l3D = .true.
+     n_cells = naxes(1)
+  else
+     write(*,*) "Found a structured mesh"
+     lVoronoi = .false.
+  endif
+
+  ! Closing file
+  call ftclos(unit, status)
+  call ftfiou(unit, status)
+
+  return
+
+end subroutine is_density_file_Voronoi
+
+!********************************************************************
+
 subroutine read_density_file()
   ! Nouvelle routine pour lire les grilles de densite
   ! calculees par Yorick directement a partir des donnees SPH (ou autre)
@@ -994,10 +1044,10 @@ subroutine read_density_file()
   !  Get an unused Logical Unit Number to use to open the FITS file.
   call ftgiou(unit,status)
 
-  write(*,*) "Reading density file : "//trim(density_file)
+  write(*,*) "Reading density file : "//trim(density_files(1))
 
   readwrite=0
-  call ftopen(unit,density_file,readwrite,blocksize,status)
+  call ftopen(unit,density_files(1),readwrite,blocksize,status)
   if (status /= 0) call error("density file needed")
 
   ! Do we read the gas density ?
@@ -1114,9 +1164,10 @@ subroutine read_density_file()
   !  determine the size of density file
   write(*,*) "Reading dust density ..."
   call ftgknj(unit,'NAXIS',1,10,naxes,nfound,status)
+
   if ((nfound /= 3) .and. (nfound /= 4)) then
      write(*,*) "I found", nfound, "axis instead of 3 or 4"
-     call error('failed to read the NAXIS keyword in HDU 1 of '//trim(density_file)//' file')
+     call error('failed to read the NAXIS keyword in HDU 1 of '//trim(density_files(1))//' file')
   endif
 
   if ((naxes(1) /= n_rad).or.((naxes(2) /= nz).and.(naxes(2) /= 2*nz)).or.(naxes(3) /= n_az) ) then
@@ -1125,7 +1176,7 @@ subroutine read_density_file()
      write(*,*) naxes(2), nz
      write(*,*) naxes(3), n_az
      !write(*,*) naxes(4), n_a
-     call error(trim(density_file)//" does not have the right dimensions in HDU 1.")
+     call error(trim(density_files(1))//" does not have the right dimensions in HDU 1.")
   endif
 
   if (nfound == 3) then
@@ -1176,6 +1227,7 @@ subroutine read_density_file()
      else
         allocate(sph_dens_dp(n_rad,nz,n_az,n_a))
      endif
+
      sph_dens_dp = 0.0_dp
      call ftgpvd(unit,group,firstpix,npixels,nullval,sph_dens_dp,anynull,status)
      sph_dens = real(sph_dens_dp,kind=sp)
@@ -1350,7 +1402,7 @@ subroutine read_density_file()
      if (nfound /= 3) then
         write(*,*) 'Gas density:'
         write(*,*) "I found", nfound, "axis instead of 3, status=", status
-        call error('failed to read the NAXISn keywords of '//trim(density_file)//' file.')
+        call error('failed to read the NAXISn keywords of '//trim(density_files(1)))
      endif
 
      if ((naxes(1) /= n_rad).or.((naxes(2) /= nz).and.(naxes(2) /= 2*nz)).or.(naxes(3) /= n_az) ) then
@@ -1358,7 +1410,7 @@ subroutine read_density_file()
         write(*,*) naxes(1), n_rad
         write(*,*) naxes(2), nz
         write(*,*) naxes(3), n_az
-        call error(trim(density_file)//" does not have the right dimensions.")
+        call error(trim(density_files(1))//" does not have the right dimensions.")
      endif
      npixels=naxes(1)*naxes(2)*naxes(3)
 
@@ -1423,7 +1475,7 @@ subroutine read_density_file()
      if (nfound /= 4) then
         write(*,*) 'Gas velocity:'
         write(*,*) "I found", nfound, "axis instead of 4"
-        call error('failed to read the NAXISn keywords of '//trim(density_file)//' file.')
+        call error('failed to read the NAXISn keywords of '//trim(density_files(1))//' file.')
      endif
 
      if ((naxes(1) /= n_rad).or.((naxes(2) /= nz).and.(naxes(2) /= 2*nz)).or.(naxes(3) /= n_az).or.(naxes(4) /= 3) ) then
@@ -1432,7 +1484,7 @@ subroutine read_density_file()
         write(*,*) naxes(2), nz
         write(*,*) naxes(3), n_az
         write(*,*) naxes(4), 3
-        call error(trim(density_file)//" does not have the right dimensions.")
+        call error(trim(density_files(1))//" does not have the right dimensions.")
      endif
      npixels=naxes(1)*naxes(2)*naxes(3)*naxes(4)
 
@@ -1464,6 +1516,7 @@ subroutine read_density_file()
 
   call ftclos(unit, status)
   call ftfiou(unit, status)
+
 
   ! Passing the densities and velocities to mcfost arrays
   do k=1, n_az
@@ -1521,6 +1574,7 @@ subroutine read_density_file()
   do icell=1,n_cells
      masse_gaz(icell) =  densite_gaz(icell) * masse_mol_gaz * volume(icell) * AU3_to_m3
   enddo ! icell
+  write(*,*) 'Total  gas mass in model:', real(sum(masse_gaz) * g_to_Msun),' Msun'
 
   if (lvariable_dust) then
      write(*,*) "Differential spatial distribution"
@@ -1610,15 +1664,134 @@ subroutine read_density_file()
      enddo ! k
   endif  !lvariable_dust
 
-  write(*,*) 'Total  gas mass in model:', real(sum(masse_gaz) * g_to_Msun),' Msun'
   call normalize_dust_density()
   deallocate(sph_dens,a_sph)
-
-
 
   return
 
 end subroutine read_density_file
+
+!**********************************************************
+
+subroutine read_Voronoi_fits_file(filename, x,y,z,h,vx,vy,vz,particle_id, massgas,n_points)
+
+
+  character(len=*), intent(in) :: filename
+
+  real(dp), intent(out), dimension(:),   allocatable :: x,y,z,h,vx,vy,vz,massgas
+  integer, intent(out), dimension(:),   allocatable :: particle_id
+  integer, intent(out) :: n_points
+
+  real, dimension(:,:), allocatable :: xyz_sp
+  real(kind=dp), dimension(:,:), allocatable :: xyz_dp
+  real, dimension(:), allocatable :: mass_sp
+
+  integer :: status, readwrite, unit, blocksize,nfound,group,firstpix,npixels,hdutype, bitpix, nullval, i
+  logical :: anynull
+  character(len=80) :: comment
+  integer, dimension(4) :: naxes
+
+
+  write(*,*) "Reading Voronoi fits file: "//trim(filename)
+
+  ! Lecture donnees
+  status=0
+  !  Get an unused Logical Unit Number to use to open the FITS file.
+  call ftgiou(unit,status)
+
+  readwrite=0
+  call ftopen(unit,filename,readwrite,blocksize,status)
+  if (status /= 0) call error("density file needed")
+
+  status = 0
+  group=1
+  firstpix=1
+  nullval=-999
+  call ftgknj(unit,'NAXIS',1,10,naxes,nfound,status)
+
+  if ((nfound /= 1)) then
+     write(*,*) "I found", nfound, "axis instead of 1"
+     call error('failed to read the NAXIS keyword in HDU 1 of '//trim(filename))
+  endif
+
+  n_points = naxes(1)
+  npixels = naxes(1)
+
+  allocate(massgas(n_points), x(n_points),y(n_points),z(n_points), h(n_points), particle_id(n_points))
+  h = 1e-6 * huge_dp
+
+  bitpix = 0
+  call ftgkyj(unit,"bitpix",bitpix,comment,status)
+
+  if (bitpix==-32) then
+     allocate(mass_sp(n_points))
+     call ftgpve(unit,group,firstpix,npixels,nullval,mass_sp,anynull,status)
+     massgas = mass_sp
+     deallocate(mass_sp)
+  else if (bitpix==-64) then
+     call ftgpvd(unit,group,firstpix,npixels,nullval,massgas,anynull,status)
+  else
+     call error("cannot read bitpix in fits file")
+  endif
+
+
+  !---------------------------------------------------------
+  ! hdu2 is particle positions
+  !---------------------------------------------------------
+  !  move to next hdu
+  call ftmrhd(unit,1,hdutype,status)
+  nfound=1
+  ! Check dimensions
+  naxes(:) = 0
+  call ftgknj(unit,'NAXIS',1,10,naxes,nfound,status)
+  if (nfound /= 2) then
+     write(*,*) 'HDU 2 has', nfound, 'dimensions.'
+     call error('did not find 2 dimension in HDU 2')
+  endif
+  if ((naxes(1) /= 3)) then
+     write(*,*) "HDU2 dim 1 is ", naxes(1), "instead of 3"
+     call error("HDU 2 does not have the right dimension")
+  endif
+  if ((naxes(2) /= n_points)) then
+     write(*,*) "HDU2 dim 2 is ", naxes(3), "instead of ", n_points
+     call error("HDU 2 does not have the right dimension")
+  endif
+
+  npixels=naxes(1)*naxes(2)
+
+  bitpix=0
+  call ftgkyj(unit,"bitpix",bitpix,comment,status)
+
+  ! read_image
+  if (bitpix==-32) then
+     allocate(xyz_sp(3,n_cells))
+     call ftgpve(unit,group,firstpix,npixels,nullval,xyz_sp,anynull,status)
+     x = xyz_sp(1,:)
+     y = xyz_sp(2,:)
+     z = xyz_sp(3,:)
+     deallocate(xyz_sp)
+  else if (bitpix==-64) then
+     allocate(xyz_dp(3,n_cells))
+     call ftgpvd(unit,group,firstpix,npixels,nullval,xyz_dp,anynull,status)
+     x = xyz_dp(1,:)
+     y = xyz_dp(2,:)
+     z = xyz_dp(3,:)
+     deallocate(xyz_dp)
+  else
+     call error("cannot read bitpix in fits file")
+  endif
+
+  ! Defining a smoothing length
+  h = 0.02 * sqrt(x*x+y*y+z*z)
+
+  do i=1,n_points
+     particle_id(i) = i
+  enddo
+  SPH_keep_particles = 1.0
+
+  return
+
+end subroutine read_Voronoi_fits_file
 
 !**********************************************************
 
@@ -1686,7 +1859,7 @@ subroutine normalize_dust_density(disk_dust_mass)
 
   masse(:) = masse(:) * AU3_to_cm3
 
-  write(*,*) 'Total dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
+  !write(*,*) 'Total dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
   if (sum(masse) < tiny_dp) call error("Something went wrong, there is no dust in the disk")
 
   if (lcorrect_density) then
@@ -1705,23 +1878,37 @@ subroutine normalize_dust_density(disk_dust_mass)
         endif
      enddo
 
-     write(*,*) 'Total corrected dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
+     !write(*,*) 'Total corrected dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
   endif
 
   ! Remplissage a zero pour z > zmax que l'en envoie sur l'indice j=0
   ! Valable que dans le cas cylindrique mais pas de pb dans le cas spherique
   ! if (lcylindrical) densite_pouss(:,nz+1,:,:) = densite_pouss(:,nz,:,:)
 
+  call find_non_empty_cell()
+
+  return
+
+end subroutine normalize_dust_density
+
+!**********************************************************
+
+subroutine find_non_empty_cell()
+
+  integer :: icell
+
   search_not_empty : do icell=1,n_cells
-     if (masse(icell) > 0.0_sp) then
+     if (masse(icell) > tiny_real) then
         icell_not_empty = icell
         exit search_not_empty
      endif
   enddo search_not_empty
 
+  write(*,*) "Reference cell is #", icell_not_empty
+
   return
 
-end subroutine normalize_dust_density
+end subroutine find_non_empty_cell
 
 !**********************************************************
 
@@ -1735,7 +1922,7 @@ subroutine read_Sigma_file()
   integer, dimension(2) :: naxes
   logical :: anynull
   character(len=80) :: comment
-  real, dimension(:), allocatable :: sigma_sp
+  real, dimension(:,:), allocatable :: sigma_sp
 
   ! Lecture donnees
   status=0
@@ -1759,8 +1946,8 @@ subroutine read_Sigma_file()
 
   ! determine the size of density file
   nfound = 0 ! to fix ifort bug
-  call ftgknj(unit,'NAXIS',1,10,naxes,nfound,status)
-  if (nfound > 2) then
+  call ftgknj(unit,'NAXIS',1,2,naxes,nfound,status)
+  if ((nfound < 1).or.(nfound > 2)) then
      write(*,*) "nfound = ", nfound, "instead of 1 or 2"
      call error('failed to read the NAXISn keywords of '//trim(sigma_file)//' file.')
   endif
@@ -1786,12 +1973,12 @@ subroutine read_Sigma_file()
   call ftgkyj(unit,"bitpix",bitpix,comment,status)
 
   ! read_image
-  allocate(Surface_density(n_rad), stat=alloc_status)
+  allocate(Surface_density(n_rad,n_az), stat=alloc_status)
   if (alloc_status > 0) call error('Allocation error Sigma')
   Surface_density = 0.0_dp
 
   if (bitpix==-32) then
-     allocate(sigma_sp(n_rad))
+     allocate(sigma_sp(n_rad,n_az))
      sigma_sp = 0.0_dp
      call ftgpve(unit,group,firstpix,npixels,nullval,sigma_sp,anynull,status)
      surface_density = real(sigma_sp,kind=dp)
@@ -1900,15 +2087,9 @@ subroutine densite_Seb_Charnoz()
 
   masse(:) = masse(:) * AU3_to_cm3 * 1600./3500 ! TMP
 
-  search_not_empty : do icell=1,n_cells
-     if (masse(icell) > 0.0_sp) then
-        icell_not_empty = icell
-        exit search_not_empty
-     endif
-  enddo search_not_empty
-
-
   write(*,*) 'Total dust mass in model  :', real(sum(masse)*g_to_Msun),'Msun'
+
+  call find_non_empty_cell()
 
   write(*,*) "Done"
   write(*,*) "***********************************************"
@@ -1939,10 +2120,10 @@ subroutine densite_Seb_Charnoz2()
   call ftgiou(unit,status)
 
   write(*,*) "Density structure from Seb. Charnoz" ;
-  write(*,*) "Reading density file : "//trim(density_file)
+  write(*,*) "Reading density file : "//trim(density_files(1))
 
   readwrite=0
-  call ftopen(unit,density_file,readwrite,blocksize,status)
+  call ftopen(unit,density_files(1),readwrite,blocksize,status)
   if (status /= 0) call error("density file needed")
 
   group=1
@@ -1951,13 +2132,13 @@ subroutine densite_Seb_Charnoz2()
 
   !  determine the size of density file
   call ftgknj(unit,'NAXIS',1,10,naxes,nfound,status)
-  if (nfound /= 2) call error('failed to read the NAXISn keywords of '//trim(density_file)//' file.')
+  if (nfound /= 2) call error('failed to read the NAXISn keywords of '//trim(density_files(1))//' file.')
 
   if ((naxes(1) /= n_rad).or.(naxes(2) /= nz) ) then
      write(*,*) "# fits_file vs mcfost_grid"
      write(*,*) naxes(1), n_rad
      write(*,*) naxes(2), nz
-     call error(trim(density_file)//" does not have the right dimensions.")
+     call error(trim(density_files(1))//" does not have the right dimensions.")
   endif
 
   npixels=naxes(1)*naxes(2)
@@ -2012,14 +2193,10 @@ subroutine densite_Seb_Charnoz2()
 
   masse(:) = masse(:) * AU3_to_cm3
 
-  search_not_empty : do icell=1,n_cells
-     if (masse(icell) > 0.0_sp) then
-        icell_not_empty = icell
-        exit search_not_empty
-     endif
-  enddo search_not_empty
-
   write(*,*) 'Total dust mass in model :', real(sum(masse)*g_to_Msun),' Msun'
+
+  call find_non_empty_cell()
+
   write(*,*) "Density from Seb. Charnoz set up OK"
 
   return

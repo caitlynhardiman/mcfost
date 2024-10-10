@@ -964,7 +964,7 @@ end subroutine intersect_stars
    if (icell0<=n_cells) then
    !TO DO: densite_gaz(icell0) instead of nHtot
       rho = nHtot(icell0) * wght_per_H
-      if (rho > 0.0) then ! even if icompute_atomRT(icell0) /= 0 
+      if (rho > 0.0) then ! even if icompute_atomRT(icell0) /= 0
          rr = sqrt( x*x + y*y + z*z)
          ! Get vaccr : the accretion velocity above the shock.
          if (lvoronoi) then !always 3d
@@ -1269,7 +1269,7 @@ end subroutine find_spectra
 
        ! Pas de fUV et pas de spectre stellaire pour le moment
        etoile(i)%fUV = 0.0 ; etoile(i)%slope_UV = 0.0 ;
-       etoile(i)%lb_body = .false.
+       etoile(i)%lb_body = .false. ! Not a bb by default
        etoile(i)%spectre = "None"
 
        write(*,*) "Star #",i,"  Teff=", etoile(i)%T, "K, r=", real(etoile(i)%r), "Rsun"
@@ -1277,6 +1277,9 @@ end subroutine find_spectra
 
     ! Passage rayon en AU
     etoile(:)%r = etoile(:)%r * Rsun_to_AU
+
+    ! We force again a black-body if needed
+    if (lstar_bb) etoile(:)%lb_body = .true.
 
     return
 
