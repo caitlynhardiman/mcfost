@@ -446,10 +446,10 @@ contains
     read(1,*) vitesse_turb, v_turb_unit
     if (v_turb_unit(1:2) == "km") then
        vitesse_turb = vitesse_turb * km_to_m ! Conversion en m.s-1
-    else if (trim(v_turb_unit) == "cs") then
-       call error("Turbulence velocity as a fraction of sound speed not implemented yet")
-    else
-       call error("Turbulence velocity unit not recognised")
+    !else if (trim(v_turb_unit) == "cs") then
+       !call error("Turbulence velocity as a fraction of sound speed not implemented yet")
+    !else
+       !call error("Turbulence velocity unit not recognised")
     endif
 
     read(1,*) n_molecules
