@@ -289,7 +289,7 @@ subroutine define_gas_density()
      ! Normalisation
      if (mass > 0.0) then ! pour le cas ou gas_to_dust = 0.
         facteur = dz%diskmass * dz%gas_to_dust / mass
-             write(*,*) "VERIF gas mass: zone ",  izone, dz%diskmass * dz%gas_to_dust, mass, facteur
+             !write(*,*) "VERIF gas mass: zone ",  izone, dz%diskmass * dz%gas_to_dust, mass, facteur
 
         ! Somme sur les zones pour densite finale
         do i=1,n_rad
@@ -299,7 +299,6 @@ subroutine define_gas_density()
                  icell = cell_map(i,j,k)
                  densite_gaz(icell) = densite_gaz(icell) + densite_gaz_tmp(icell) * facteur
               enddo bz_gas_mass2
-
               densite_gaz_midplane(i,k) = densite_gaz_midplane(i,k) + densite_gaz_midplane_tmp(i,k) * facteur
            enddo !k
         enddo ! i
