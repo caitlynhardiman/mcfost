@@ -53,7 +53,7 @@ subroutine define_gas_density()
   integer :: i,j, k, izone, alloc_status, icell
   real(kind=dp), dimension(n_zones) :: cst_gaz
   real(kind=dp) :: z, density, fact_exp, rsph, mass, puffed, facteur, z0, phi, surface, H, C, somme
-  real(kind=dp) :: rcyl2, z2, rin2, rmax2, rmin2, rsph0, rcyl, coeff_exp
+  real(kind=dp) :: rcyl2, z2, rin2, rmax2, rmin2, rcyl, coeff_exp
 
   type(disk_zone_type) :: dz
 
@@ -88,7 +88,7 @@ subroutine define_gas_density()
 
      ! Facteur multiplicatif pour passer en masse de gaz
      ! puis en nH2/AU**3 puis en nH2/m**3
-     cst_gaz(izone) = C * dz%diskmass * dz%gas_to_dust / masse_mol_gaz * Msun_to_g / AU3_to_m3
+     cst_gaz(izone) = C * dz%diskmass * dz%gas_to_dust / mu_mH * Msun_to_g / AU3_to_m3
   enddo
 
   do izone=1, n_zones
@@ -282,7 +282,7 @@ subroutine define_gas_density()
      ! Calcul de la masse de gaz de la zone
      mass = 0.
      do icell = 1, n_cells
-        mass = mass + densite_gaz_tmp(icell) *  masse_mol_gaz * volume(icell)
+        mass = mass + densite_gaz_tmp(icell) *  mu_mH * volume(icell)
      enddo
      mass =  mass * AU3_to_m3 * g_to_Msun
 
@@ -318,7 +318,7 @@ subroutine define_gas_density()
 
   ! Tableau de masse de gaz
   do icell=1,n_cells
-     masse_gaz(icell) =  densite_gaz(icell) * masse_mol_gaz * volume(icell) * AU3_to_m3
+     masse_gaz(icell) =  densite_gaz(icell) * mu_mH * volume(icell) * AU3_to_m3
   enddo
   write(*,*) 'Total  gas mass in model:', real(sum(masse_gaz) * g_to_Msun),' Msun'
 
@@ -349,16 +349,15 @@ subroutine define_dust_density()
 
   integer :: i,j, k, icell, l, izone, pop
   real(kind=dp), dimension(n_pop) :: cst, cst_pous
-  real(kind=dp) :: rcyl, rsph, mass
+  real(kind=dp) :: rcyl, rsph
   real(kind=dp) :: z, fact_exp, coeff_exp, density, OmegaTau, h_H2
-  real(kind=dp) :: puffed, facteur, z0, phi, surface, norme
+  real(kind=dp) :: puffed, z0, phi, surface, norme
 
   real(kind=dp), dimension(n_grains_tot) :: correct_strat, N_tot, N_tot2
 
-  real(kind=dp) :: rho0, ztilde, Dtilde, h, s_opt, somme, rcyl2, z2, rmin2, rin2, rmax2, rsph0
+  real(kind=dp) :: rho0, ztilde, Dtilde, h, s_opt, somme, rcyl2, z2, rmin2, rin2, rmax2
 
   type(disk_zone_type) :: dz
-  type(dust_pop_type), pointer :: d_p
 
   ! Pour simus Seb
   real, parameter :: Sc = 1.5 ! nbre de Schmidt
@@ -443,7 +442,7 @@ subroutine define_dust_density()
 
         do i=1, n_rad
 
-           !write(*,*) "     ", rcyl, rho0*masse_mol_gaz*cm_to_m**2, dust_pop(pop)%rho1g_avg
+           !write(*,*) "     ", rcyl, rho0*mu_mH*cm_to_m**2, dust_pop(pop)%rho1g_avg
            !write(*,*) "s_opt", rcyl, s_opt/1000.
 
            bz : do j=j_start,nz
@@ -475,7 +474,6 @@ subroutine define_dust_density()
                  phi = phi_grid(icell)
 
                  rho0 = densite_gaz_midplane(i,k) ! midplane density (j=0)
-
 
                  ! Warp analytique
                  if (lwarp) then
@@ -680,11 +678,11 @@ subroutine define_dust_density()
               do k=1, n_az
                  rho0 = densite_gaz(cell_map(i,1,k)) ! pour dependance en R : pb en coord sperique
                  !s_opt = rho_g * cs / (rho * Omega)    ! cs = H * Omega ! on doit trouver 1mm vers 50AU
-                 !omega_tau= dust_pop(ipop)%rho1g_avg*(r_grain(l)*mum_to_cm) / (rho * masse_mol_gaz/m_to_cm**3 * H*AU_to_cm)
+                 !omega_tau= dust_pop(ipop)%rho1g_avg*(r_grain(l)*mum_to_cm) / (rho * mu_mH/m_to_cm**3 * H*AU_to_cm)
                  icell = cell_map(i,1,k)
                  rcyl = r_grid(icell)
                  H = dz%sclht * (rcyl/dz%rref)**dz%exp_beta
-                 s_opt = (rho0*masse_mol_gaz*cm_to_m**3  /dust_pop(pop)%rho1g_avg) *  H * AU_to_m * m_to_mum
+                 s_opt = (rho0*mu_mH*cm_to_m**3  /dust_pop(pop)%rho1g_avg) *  H * AU_to_m * m_to_mum
 
                  !write(*,*) "r=", rcyl, "a_migration =", s_opt
 
@@ -1009,7 +1007,7 @@ subroutine read_density_file()
   character(len=80) :: comment
 
   integer :: k, l, i, n_a, read_n_a, read_gas_density, read_gas_velocity, jj, icell, phik, n_sink
-  real(kind=dp) :: somme, mass, facteur
+  real(kind=dp) :: mass, facteur
   real :: a, tmp, gas2dust
 
   real :: m_star, x_star, y_star, z_star, vx_star, vy_star, vz_star
@@ -1553,7 +1551,7 @@ subroutine read_density_file()
   ! Calcul de la masse de gaz de la zone
   mass = 0.
   do icell=1,n_cells
-     mass = mass + densite_gaz(icell) *  masse_mol_gaz * volume(icell)
+     mass = mass + densite_gaz(icell) *  mu_mH * volume(icell)
   enddo !icell
   mass =  mass * AU3_to_m3 * g_to_Msun
 
@@ -1571,7 +1569,7 @@ subroutine read_density_file()
 
   ! Tableau de masse de gaz
   do icell=1,n_cells
-     masse_gaz(icell) =  densite_gaz(icell) * masse_mol_gaz * volume(icell) * AU3_to_m3
+     masse_gaz(icell) =  densite_gaz(icell) * mu_mH * volume(icell) * AU3_to_m3
   enddo ! icell
   write(*,*) 'Total  gas mass in model:', real(sum(masse_gaz) * g_to_Msun),' Msun'
 
@@ -1820,7 +1818,7 @@ subroutine normalize_dust_density(disk_dust_mass)
   do l=1,n_grains_tot
      somme=0.0_dp
      do icell=1,n_cells
-        if (densite_pouss(l,icell) <= 0.0_dp) densite_pouss(l,icell) = 0.0_dp !tiny_real *  nbre_grains(l)
+        if (densite_pouss(l,icell) <= 0.0_dp) densite_pouss(l,icell) = 0.0_dp
         somme=somme+densite_pouss(l,icell)*volume(icell)
      enddo !icell
      if (somme > tiny_dp) densite_pouss(l,:) = densite_pouss(l,:) / somme * nbre_grains(l) ! nbre_grains pour avoir Sum densite_pouss = 1  dans le disque
@@ -1858,7 +1856,7 @@ subroutine normalize_dust_density(disk_dust_mass)
 
   masse(:) = masse(:) * AU3_to_cm3
 
-  !write(*,*) 'Total dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
+  write(*,*) 'Total dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
   if (sum(masse) < tiny_dp) call error("Something went wrong, there is no dust in the disk")
 
   if (lcorrect_density) then
@@ -1877,7 +1875,7 @@ subroutine normalize_dust_density(disk_dust_mass)
         endif
      enddo
 
-     !write(*,*) 'Total corrected dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
+     write(*,*) 'Total corrected dust mass in model:', real(sum(masse)*g_to_Msun),' Msun'
   endif
 
   ! Remplissage a zero pour z > zmax que l'en envoie sur l'indice j=0
@@ -2012,7 +2010,7 @@ real(kind=dp) function omega_tau(rho,H,l)
   ipop = grain(l)%pop
   !write(*,*) ipop, dust_pop(ipop)%rho1g_avg, rho
   if (rho > tiny_dp) then
-     omega_tau = dust_pop(ipop)%rho1g_avg*(r_grain(l)*mum_to_cm) / (rho * masse_mol_gaz/m_to_cm**3 * H*AU_to_cm)
+     omega_tau = dust_pop(ipop)%rho1g_avg*(r_grain(l)*mum_to_cm) / (rho * mu_mH/m_to_cm**3 * H*AU_to_cm)
   else
      omega_tau = huge_dp
   endif
